@@ -628,6 +628,70 @@ async def async_stream_and_merge(llm, prompt, sampling_params):
         yield cleaned_chunk  # yield the non-overlapping portion
 
 
+def init_logger(name: str, split_file: Optional[str] = None) -> logging.Logger:
+
+    """
+
+    This function is referenced from vllm engine.
+
+    """
+
+    check_exist_logpath()
+    logger = logging.getLogger(name)
+    if split_file is not None:
+        handler = logging.FileHandler(split_file)
+        formatter = "[%(asctime)s] [%(levelname)s] [%(filename)s %(funcName)s():%(lineno)d] [%(message)s]"
+        handler.setFormatter(logging.Formatter(formatter))
+        handler.setLevel(logging.INFO)
+        logger.addHandler(handler)
+    return logger
+
+
+def check_exist_logpath():
+    logs_dir = os.path.join(os.getcwd(), "logs")
+    if not os.path.exists(logs_dir):
+        try:
+            os.makedirs(logs_dir, exist_ok=True)
+            logger.warning("create root log path success!")
+            # print(f"Created logs directory: {logs_dir}")
+        except Exception as e:
+            logger.error("create root log path failed!")
+            # print(f"Failed to create logs directory: {e}")
+
+
+
+def init_logger(name: str, split_file: Optional[str] = None) -> logging.Logger:
+
+    """
+
+    This function is referenced from vllm engine.
+
+    """
+
+    check_exist_logpath()
+    logger = logging.getLogger(name)
+    if split_file is not None:
+        handler = logging.FileHandler(split_file)
+        formatter = "[%(asctime)s] [%(levelname)s] [%(filename)s %(funcName)s():%(lineno)d] [%(message)s]"
+        handler.setFormatter(logging.Formatter(formatter))
+        handler.setLevel(logging.INFO)
+        logger.addHandler(handler)
+    return logger
+
+
+def check_exist_logpath():
+    logs_dir = os.path.join(os.getcwd(), "logs")
+    if not os.path.exists(logs_dir):
+        try:
+            os.makedirs(logs_dir, exist_ok=True)
+            logger.warning("create root log path success!")
+            # print(f"Created logs directory: {logs_dir}")
+        except Exception as e:
+            logger.error("create root log path failed!")
+            # print(f"Failed to create logs directory: {e}")
+
+
+
 def resolve_obj_by_qualname(qualname: str) -> Any:
     """
     Resolve an object by its fully qualified name.

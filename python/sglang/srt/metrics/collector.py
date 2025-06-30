@@ -25,10 +25,30 @@ from sglang.srt.environ import envs
 from sglang.srt.metrics.utils import exponential_buckets, generate_buckets
 from sglang.srt.model_executor.forward_batch_info import ForwardMode
 from sglang.srt.server_args import ServerArgs
+from sglang.utils import init_logger
 from sglang.srt.utils import get_bool_env_var
 from sglang.srt.utils.gauge_histogram import GaugeHistogram
 
+from llm_plugin.metrics import kmonitor, AccMetrics, GaugeMetrics
+from llm_plugin.utils.time_util import current_time_ms
+
 SGLANG_TEST_REQUEST_TIME_STATS = get_bool_env_var("SGLANG_TEST_REQUEST_TIME_STATS")
+
+logger = init_logger(__name__, "logs/metrics.log")
+
+
+def get_histogram_conf_from_env(env_var_name: str) -> Optional[List[float]]:
+    """
+    Get the histogram configuration from the environment variable.
+    env value should be like "0.1,0.2,0.5,1,2"
+    """
+    if env_var_name not in os.environ:
+        return None
+    # if the env var is not set or empty, return None
+    env_var_value = os.environ[env_var_name]
+    if not env_var_value:
+        return None
+    return [float(x) for x in env_var_value.split(",")]
 
 
 logger = logging.getLogger(__name__)
@@ -203,6 +223,7 @@ class SchedulerStats:
     num_running_reqs: int = 0
     num_used_tokens: int = 0
     token_usage: float = 0.0
+    input_throughput: float = 0.0
     pending_prealloc_token_usage: float = 0.0
     swa_token_usage: float = 0.0
     mamba_usage: float = 0.0
@@ -973,6 +994,9 @@ class SchedulerMetricsCollector:
             ).inc(t)
 
     def log_stats(self, stats: SchedulerStats) -> None:
+        # for whale core metrics
+        kmonitor.report(GaugeMetrics.RTP_LLM_CONTEXT_TPS, stats.input_throughput)
+        kmonitor.report(GaugeMetrics.RTP_LLM_GENERATE_TPS, stats.gen_throughput)
         self._log_gauge(self.num_running_reqs, stats.num_running_reqs)
         self._log_gauge(self.num_used_tokens, stats.num_used_tokens)
         self._log_gauge(self.token_usage, stats.token_usage)
@@ -1323,6 +1347,11 @@ class TokenizerMetricsCollector:
         retraction_count: int,
         cached_tokens_details: Optional[Dict[str, Any]] = None,
     ):
+        # for whale core metrics
+        kmonitor.report(GaugeMetrics.INPUT_TOKEN_SIZE_METRIC, prompt_tokens)
+        kmonitor.report(GaugeMetrics.OUTPUT_TOKEN_SIZE_METRIC, generation_tokens)
+        kmonitor.report(GaugeMetrics.RTP_LLM_KV_CACHE_REUSE_LENGTH, cached_tokens)
+
         self.prompt_tokens_total.labels(**labels).inc(prompt_tokens)
         self.generation_tokens_total.labels(**labels).inc(generation_tokens)
 

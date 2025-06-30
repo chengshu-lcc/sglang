@@ -49,7 +49,7 @@ import uvloop
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, ORJSONResponse, Response, StreamingResponse
 
 from sglang.srt.disaggregation.utils import FAKE_BOOTSTRAP_HOST, DisaggregationMode
 from sglang.srt.entrypoints.anthropic.protocol import (
@@ -158,14 +158,27 @@ from sglang.srt.utils import (
 from sglang.srt.utils.auth import AuthLevel, app_has_admin_force_endpoints, auth_level
 from sglang.utils import get_exception_traceback
 from sglang.version import __version__
+from llm_plugin.utils.concurrency_controller import ConcurrencyController, ConcurrencyException
+from wrapper.request_wrapper import ChatCompletionRequestWrapper, CompletionRequestWrapper, EmbeddingCompletionRequestWrapper
+from wrapper.response_wrapper import CompletionResponseWrapper
 
-logger = logging.getLogger(__name__)
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 # Global constants
 HEALTH_CHECK_TIMEOUT = int(os.getenv("SGLANG_HEALTH_CHECK_TIMEOUT", 20))
 WAIT_WEIGHTS_READY_TIMEOUT = int(os.getenv("SGLANG_WAIT_WEIGHTS_READY_TIMEOUT", 120))
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
+def create_concurrency_response(message: str) -> JSONResponse:
+    response = ErrorResponse(message=message,
+                             type="TOO_MANY_REQUESTS",
+                             code=HTTPStatus.TOO_MANY_REQUESTS)
+    return JSONResponse(content=response.model_dump(),
+                        status_code=response.code)
+
+max_concurrency = int(os.getenv("CONCURRENCY_LIMIT", "128"))
+controller = ConcurrencyController(max_concurrency=max_concurrency, block=False)
+logger = logging.getLogger('sglang.entrypoints.openai.api_server')
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 # Store global states
 @dataclasses.dataclass
@@ -1339,35 +1352,81 @@ async def continue_generation(obj: ContinueGenerationReqInput, request: Request)
 
 ##### OpenAI-compatible API endpoints #####
 
+if True:
+    # Whale-specific endpoints with concurrency control and monitoring
 
-@app.post("/v1/completions", dependencies=[Depends(validate_json_request)])
-async def openai_v1_completions(request: CompletionRequest, raw_request: Request):
-    """OpenAI-compatible text completion endpoint."""
-    return await raw_request.app.state.openai_serving_completion.handle_request(
-        request, raw_request
+    @app.post("/", dependencies=[Depends(validate_json_request)])
+    async def openai_v1_completions_raw(
+        request: CompletionRequestWrapper, raw_request: Request
+    ):
+        """Whale-specific completion endpoint with response wrapper."""
+        response = await openai_v1_completions(request, raw_request)
+        return CompletionResponseWrapper(request, response)
+
+    @app.post("/v1/completions", dependencies=[Depends(validate_json_request)])
+    async def openai_v1_completions(
+        request: CompletionRequestWrapper, raw_request: Request
+    ):
+        """OpenAI-compatible text completion endpoint with Whale monitoring."""
+        try:
+            with controller:
+                request.update_request()
+                return await raw_request.app.state.openai_serving_completion.handle_request(
+                    request, raw_request
+                )
+        except ConcurrencyException as e:
+            try:
+                from llm_plugin.metrics import AccMetrics, kmonitor
+
+                kmonitor.report(AccMetrics.CONFLICT_QPS_METRIC, 1)
+            except ImportError:
+                pass
+            return create_concurrency_response(str(e))
+
+    @app.post("/v1/chat/completions", dependencies=[Depends(validate_json_request)])
+    async def openai_v1_chat_completions(
+        request: ChatCompletionRequestWrapper, raw_request: Request
+    ):
+        """OpenAI-compatible chat completion endpoint with Whale monitoring."""
+        try:
+            with controller:
+                request.update_request()
+                return await raw_request.app.state.openai_serving_chat.handle_request(
+                    request, raw_request
+                )
+        except ConcurrencyException as e:
+            try:
+                from llm_plugin.metrics import AccMetrics, kmonitor
+
+                kmonitor.report(AccMetrics.CONFLICT_QPS_METRIC, 1)
+            except ImportError:
+                pass
+            return create_concurrency_response(str(e))
+
+    @app.post(
+        "/v1/embeddings",
+        response_class=ORJSONResponse,
+        dependencies=[Depends(validate_json_request)],
     )
+    async def openai_v1_embeddings(
+        request: EmbeddingCompletionRequestWrapper, raw_request: Request
+    ):
+        """OpenAI-compatible embeddings endpoint with Whale monitoring."""
+        try:
+            with controller:
+                request.update_request()
+                return await raw_request.app.state.openai_serving_embedding.handle_request(
+                    request, raw_request
+                )
+        except ConcurrencyException as e:
+            try:
+                from llm_plugin.metrics import AccMetrics, kmonitor
 
+                kmonitor.report(AccMetrics.CONFLICT_QPS_METRIC, 1)
+            except ImportError:
+                pass
+            return create_concurrency_response(str(e))
 
-@app.post("/v1/chat/completions", dependencies=[Depends(validate_json_request)])
-async def openai_v1_chat_completions(
-    request: ChatCompletionRequest, raw_request: Request
-):
-    """OpenAI-compatible chat completion endpoint."""
-    return await raw_request.app.state.openai_serving_chat.handle_request(
-        request, raw_request
-    )
-
-
-@app.post(
-    "/v1/embeddings",
-    response_class=ORJSONResponse,
-    dependencies=[Depends(validate_json_request)],
-)
-async def openai_v1_embeddings(request: EmbeddingRequest, raw_request: Request):
-    """OpenAI-compatible embeddings endpoint."""
-    return await raw_request.app.state.openai_serving_embedding.handle_request(
-        request, raw_request
-    )
 
 
 @app.post(

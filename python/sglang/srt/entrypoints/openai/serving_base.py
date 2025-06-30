@@ -225,6 +225,40 @@ class OpenAIServingBase(ABC):
         )
         return ORJSONResponse(content=error.model_dump(), status_code=status_code)
 
+    async def get_none_stream_ret(
+        self,
+        adapted_request: Union[GenerateReqInput, EmbeddingReqInput],
+        raw_request: Optional[Request] = None,
+    ):
+        """Iterate through all tokens from generate_request and report kmonitor metrics.
+
+        Unlike __anext__() which only gets the first item, this method consumes
+        the full async generator so that kmonitor per-token metrics are reported,
+        then returns the last result (which contains the complete output).
+        """
+        from llm_plugin.metrics import kmonitor, AccMetrics, GaugeMetrics
+        from llm_plugin.utils.time_util import current_time_ms
+
+        is_first = True
+        start_time = current_time_ms()
+        pre_token_time = None
+        ret = None
+
+        async for ret in self.tokenizer_manager.generate_request(adapted_request, raw_request):
+            now = current_time_ms()
+            if is_first:
+                kmonitor.report(GaugeMetrics.RESPONSE_FIRST_TOKEN_RT_METRIC, now - start_time)
+            else:
+                kmonitor.report(GaugeMetrics.RESPONSE_ITER_RT_METRIC, now - pre_token_time)
+            pre_token_time = now
+            kmonitor.report(AccMetrics.ITER_QPS_METRIC, 1)
+            is_first = False
+
+        kmonitor.report(AccMetrics.SUCCESS_QPS_METRIC, 1)
+        kmonitor.report(GaugeMetrics.LANTENCY_METRIC, current_time_ms() - start_time)
+
+        return ret
+
     def create_streaming_error_response(
         self,
         message: str,

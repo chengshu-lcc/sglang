@@ -258,6 +258,7 @@ class SchedulerMetricsMixin:
             self.stats.num_running_reqs_offline_batch = 0
             self.stats.num_used_tokens = num_used
             self.stats.token_usage = token_usage
+            self.stats.input_throughput = self.last_input_throughput
             if self.is_hybrid_swa:
                 self.stats.swa_token_usage = swa_token_usage
             if self.is_hybrid_ssm:

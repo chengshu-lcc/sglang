@@ -639,6 +639,13 @@ class OpenAIServingChat(OpenAIServingBase):
         hidden_states = {}
         routed_experts = {}
 
+        from llm_plugin.metrics import kmonitor, AccMetrics, GaugeMetrics
+        from llm_plugin.utils.time_util import current_time_ms
+
+        stream_start_time = current_time_ms()
+        stream_pre_token_time = None
+        stream_is_first_token = True
+
         try:
             async for content in self.tokenizer_manager.generate_request(
                 adapted_request, raw_request
@@ -691,6 +698,15 @@ class OpenAIServingChat(OpenAIServingBase):
                         model=request.model,
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
+                    if stream_is_first_token:
+                        stream_is_first_token = False
+                        kmonitor.report(GaugeMetrics.RESPONSE_FIRST_TOKEN_RT_METRIC, current_time_ms() - stream_start_time)
+                        stream_pre_token_time = current_time_ms()
+                else:
+                    now = current_time_ms()
+                    kmonitor.report(GaugeMetrics.RESPONSE_ITER_RT_METRIC, now - stream_pre_token_time)
+                    stream_pre_token_time = now
+                kmonitor.report(AccMetrics.ITER_QPS_METRIC, 1)
 
                 stream_buffer = stream_buffers.get(index, "")
                 delta = content["text"][len(stream_buffer) :]
@@ -873,6 +889,9 @@ class OpenAIServingChat(OpenAIServingBase):
         except ValueError as e:
             error = self.create_streaming_error_response(str(e))
             yield f"data: {error}\n\n"
+        else:
+            kmonitor.report(AccMetrics.SUCCESS_QPS_METRIC, 1)
+            kmonitor.report(GaugeMetrics.LANTENCY_METRIC, current_time_ms() - stream_start_time)
 
         yield "data: [DONE]\n\n"
 
@@ -884,10 +903,11 @@ class OpenAIServingChat(OpenAIServingBase):
     ) -> Union[ChatCompletionResponse, ErrorResponse, ORJSONResponse]:
         """Handle non-streaming chat completion request"""
         try:
-            ret = await self.tokenizer_manager.generate_request(
-                adapted_request, raw_request
-            ).__anext__()
+            ret = await self.get_none_stream_ret(adapted_request, raw_request)
         except ValueError as e:
+            logger.warning(f"run request failed: e: {e}, request:{raw_request}")
+            from llm_plugin.metrics import kmonitor, AccMetrics
+            kmonitor.report(AccMetrics.ERROR_QPS_METRIC, 1)
             return self.create_error_response(str(e))
 
         if not isinstance(ret, list):

@@ -43,6 +43,7 @@ RUN chmod -R 777 /.aiter
 
 RUN mkdir -p /tmp/aiter_configs && chmod 777 /tmp/aiter_configs
 
+
 RUN rm -rf /tmp/aiter_configs/*
 
 

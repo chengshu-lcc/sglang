@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fastapi import Request
@@ -20,6 +21,8 @@ from sglang.srt.parser.conversation import generate_embedding_convs
 if TYPE_CHECKING:
     from sglang.srt.managers.template_manager import TemplateManager
     from sglang.srt.managers.tokenizer_manager import TokenizerManager
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIServingEmbedding(OpenAIServingBase):
@@ -148,10 +151,11 @@ class OpenAIServingEmbedding(OpenAIServingBase):
     ) -> Union[EmbeddingResponse, ErrorResponse, ORJSONResponse]:
         """Handle the embedding request"""
         try:
-            ret = await self.tokenizer_manager.generate_request(
-                adapted_request, raw_request
-            ).__anext__()
+            ret = await self.get_none_stream_ret(adapted_request, raw_request)
         except ValueError as e:
+            logger.warning(f"run request failed: e: {e}, request:{raw_request}")
+            from llm_plugin.metrics import kmonitor, AccMetrics
+            kmonitor.report(AccMetrics.ERROR_QPS_METRIC, 1)
             return self.create_error_response(str(e))
 
         if not isinstance(ret, list):

@@ -118,12 +118,15 @@ from sglang.srt.utils.hf_transformers_utils import (
 from sglang.srt.utils.request_logger import RequestLogger
 from sglang.srt.utils.watchdog import Watchdog
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
+from sglang.utils import TypeBasedDispatcher, get_exception_traceback, init_logger
+from sglang.error_utils import ValueWithErrorCode, ExceptionType
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 _REQUEST_STATE_WAIT_TIMEOUT = envs.SGLANG_REQUEST_STATE_WAIT_TIMEOUT.get()
 
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__, "logs/access.log")
+# logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
