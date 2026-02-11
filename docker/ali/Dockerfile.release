@@ -1,0 +1,51 @@
+FROM hub.docker.alibaba-inc.com/tre-ai-infra/rocm/ali-private:ubuntu22.04_rocm6.4.3_sglang_qwen3_next_ptpc_0129
+
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+WORKDIR /sgl-workspace/sglang
+
+COPY . .
+
+RUN ls -rlt /sgl-workspace/sglang
+
+# 安装依赖包并缓存结果
+RUN /usr/bin/pip3 install -r requirements/alibaba.txt -i https://artifacts.antgroup-inc.cn/simple/ \
+     --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra \
+     --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/py-central/ \
+     --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/pytorch/ \
+     --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/rtp_diffusion \
+     --trusted-host=artlab.alibaba-inc.com \
+     --find-links https://flashinfer.ai/whl/cu121/torch2.5/flashinfer-python/ \
+     && rm -rf ~/.cache/pip
+
+     #--extra-index-url=https://rtp-pypi-mirrors.alibaba-inc.com/root/pypi/+simple \
+
+
+WORKDIR /app/sglang_server
+
+COPY whale_sglang .
+
+RUN chmod -R 777 .
+
+RUN mkdir /.cache
+RUN chmod -R 777 /.cache
+
+RUN mkdir /.triton
+RUN chmod -R 777 /.triton
+
+RUN mkdir /.config
+
+RUN chmod -R 777 /.config
+
+RUN mkdir /.aiter
+
+RUN chmod -R 777 /.aiter
+
+RUN mkdir -p /tmp/aiter_configs && chmod 777 /tmp/aiter_configs
+
+RUN rm -rf /tmp/aiter_configs/*
+
+
+RUN ls -rlt /sgl-workspace
+
+RUN ls -rlt /app/sglang_server

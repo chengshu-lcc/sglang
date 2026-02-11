@@ -1,0 +1,32 @@
+name: build docker
+
+jobs:
+  build-and-push-docker:
+    name: build docker
+    timeout: 7200s
+    steps:
+      - uses: checkout
+      - id: show-files
+        run: |
+          cd ${AONE_CI_SOURCE}
+          ls -lta
+          uname -a
+          cat /proc/version
+      - id: version-step
+        run: >-
+          echo $(git describe --tags --abbrev=0 2>/dev/null || echo "v0.5.9-dev-0.0.$(git rev-parse HEAD)") >
+          ${{outputs.result.path}}
+      - uses: build-image
+        id: buildImage
+        inputs:
+          image-name: hub.docker.alibaba-inc.com/isearch/sglang_server_rocm
+          image-tag: ${{steps.version-step.outputs.result}}
+          dockerfile-path: docker/ali/Dockerfile.release
+          context-dir: .
+          registry-username: '${{secrets.hub_docker_id}}'
+          registry-password: '${{secrets.hub_docker_secret}}'
+      - id: test-outputs
+        run: |
+          echo ${{steps.buildImage.outputs.image-artifact}}
+          echo ${{steps.buildImage.outputs.image-digest}}
+          echo ${{steps.buildImage.outputs.image-size}}
