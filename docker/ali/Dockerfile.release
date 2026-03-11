@@ -1,4 +1,4 @@
-FROM hub.docker.alibaba-inc.com/tre-ai-infra/rocm/ali-private:ubuntu22.04_rocm6.4.3_sglang_qwen3_next_ptpc_0129
+FROM hub.docker.alibaba-inc.com/rocm/sgl-dev:v0.5.9-rocm720-mi30x-20260309
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
@@ -9,7 +9,7 @@ COPY . .
 RUN ls -rlt /sgl-workspace/sglang
 
 # 安装依赖包并缓存结果
-RUN /usr/bin/pip3 install -r requirements/alibaba.txt -i https://artifacts.antgroup-inc.cn/simple/ \
+RUN /opt/venv/bin/pip3.10 install -r requirements/alibaba.txt -i https://artifacts.antgroup-inc.cn/simple/ \
      --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/py-central/ \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/pytorch/ \

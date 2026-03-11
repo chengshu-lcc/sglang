@@ -1,0 +1,11 @@
+name: 转换 DADI 镜像
+
+params:
+  input_image:
+    name: 待转换的镜像
+
+jobs:
+  convert-dadi-image:
+    uses: cd-convert-dadi-image
+    inputs:
+      normal_image: ${{ params.input_image }}

@@ -170,14 +170,14 @@ if [ "${CMD}" ]; then
 else
     echo "use default mode"
     # 尝试使用指定的 Python 路径
-    if [ -x /opt/conda310/bin/python3 ]; then
-      PYTHON_EXEC=/opt/conda310/bin/python3
+    if [ -x /opt/venv/bin/python3.10 ]; then
+      PYTHON_EXEC=/opt/venv/bin/python3.10
     # 检查 /opt/conda//envs/py_3.9/bin/python 是否存在
     elif [ -f /opt/conda//envs/py_3.9/bin/python ]; then
         PYTHON_EXEC=/opt/conda//envs/py_3.9/bin/python
     else
         # 使用系统的 python3
-        echo "/opt/conda310/bin/python3 not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
+        echo "/opt/venv/bin/python3.10 not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
         PYTHON_EXEC=python3
     fi
 
