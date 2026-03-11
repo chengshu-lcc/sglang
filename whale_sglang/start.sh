@@ -160,7 +160,7 @@ fi
 
 if [[ -z "${MAX_WATCHDOG_TIMEOUT}" ]]; then
   echo "MAX_WATCHDOG_TIMEOUT is not set, set it to 300"
-  MAX_WATCHDOG_TIMEOUT="300"
+  MAX_WATCHDOG_TIMEOUT="3600"
 fi
 
 printenv > "$ENV_FILE";
@@ -195,6 +195,7 @@ else
       --tp-size ${TP_SIZE} \
       --enable-metrics \
       --context-length ${MAX_SEQ_LEN} \
+      --attention-backend triton \
       --mem-fraction-static ${GPU_MEMORY_UTILIZATION} \
       --watchdog-timeout ${MAX_WATCHDOG_TIMEOUT} \
       --host 0.0.0.0 \

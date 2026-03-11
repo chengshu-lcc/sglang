@@ -1,4 +1,4 @@
-FROM hub.docker.alibaba-inc.com/rocm/sgl-dev:v0.5.9-rocm720-mi30x-20260309
+FROM hub.docker.alibaba-inc.com/rocm/sgl-dev:v0.5.9-rocm700-mi30x-20260309
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
@@ -41,8 +41,21 @@ RUN mkdir /.aiter
 
 RUN chmod -R 777 /.aiter
 
-RUN mkdir -p /tmp/aiter_configs && chmod 777 /tmp/aiter_configs
+RUN chmod -R 777  /tmp/aiter_configs
+RUN chmod -R 777 /sgl-workspace
 
+# 安装 gdb 及调试工具，用于 coredump 分析
+RUN apt-get update && apt-get install -y \
+    gdb \
+    gdbserver \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# Patch PyTorch to also catch PermissionError when calling nvcc (happens for non-root users)
+RUN sed -i \
+    's/except (FileNotFoundError, subprocess.CalledProcessError):/except (FileNotFoundError, subprocess.CalledProcessError, PermissionError):/' \
+    /opt/venv/lib/python3.10/site-packages/torch/_dynamo/debug_utils.py
 
 RUN rm -rf /tmp/aiter_configs/*
 

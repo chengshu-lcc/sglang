@@ -475,6 +475,16 @@ async def validate_json_request(raw_request: Request):
 
 
 @app.get("/health")
+async def health() -> Response:
+    """Check the health of the http server."""
+
+    if _global_state.tokenizer_manager.gracefully_exit:
+        logger.info("Health check request received during shutdown. Returning 503.")
+        return Response(status_code=503)
+    if _global_state.tokenizer_manager.server_status == ServerStatus.Starting:
+        return Response(status_code=503)
+    return Response(status_code=200)
+
 @app.get("/health_generate")
 async def health_generate(request: Request) -> Response:
     """
@@ -2061,7 +2071,7 @@ def launch_server(
 
 def start_api_server(extra_args=[]):
     from sglang.srt.server_args import prepare_server_args
-    from utils.fuser import fetch_remote_file_to_local
+    from sglang_server.utils.fuser import fetch_remote_file_to_local
     from llm_plugin.metrics import kmonitor
     kmonitor.init()
     logger.info(f"start_api_server extra_args before preprocessing: {extra_args}")

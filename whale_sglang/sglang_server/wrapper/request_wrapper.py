@@ -63,6 +63,7 @@ class CompletionRequestWrapper(CompletionRequest):
     extend_fields: Dict[str, Any] = Field(default=None)
     max_new_tokens: int = Field(default=None)
     yield_generator: bool = Field(default=False)
+    generate_config: Dict[str, Any] = Field(default=None)
 
     # unused params
     trace_id: str = Field(default=None)
@@ -81,6 +82,10 @@ class CompletionRequestWrapper(CompletionRequest):
                     self.logprobs = int(value) + 1
                     self.echo = True
                 elif hasattr(self, key):
+                    setattr(self, key, value)
+        if self.generate_config:
+            for key, value in self.generate_config.items():
+                if hasattr(self, key):
                     setattr(self, key, value)
         if self.max_new_tokens:
             self.max_tokens = self.max_new_tokens

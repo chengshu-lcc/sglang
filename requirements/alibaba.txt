@@ -1,2 +1,4 @@
 --extra-index-url http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra
 llm_plugin==0.0.4
+blake3
+decord
