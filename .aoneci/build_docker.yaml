@@ -23,7 +23,7 @@ jobs:
           image-tag: ${{steps.version-step.outputs.result}}
           dockerfile-path: docker/ali/Dockerfile.release
           context-dir: .
-#          accelerate-type: dadi
+          accelerate-type: dadi
           registry-username: '${{secrets.hub_docker_id}}'
           registry-password: '${{secrets.hub_docker_secret}}'
       - id: test-outputs

@@ -261,6 +261,32 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
         self.image_config = server_args.mm_process_config.get("image", {})
         self.video_config = server_args.mm_process_config.get("video", {})
 
+        # Apply image config (e.g. max_pixels, min_pixels) to HF image_processor
+        if self.image_config and hasattr(self._processor, "image_processor"):
+            img_proc = self._processor.image_processor
+            for key, value in self.image_config.items():
+                if hasattr(img_proc, key):
+                    logger.info(
+                        f"Override image_processor.{key}: "
+                        f"{getattr(img_proc, key)} -> {value}"
+                    )
+                    setattr(img_proc, key, value)
+            # Fast image processors store pixel limits in size dict
+            # (longest_edge=max_pixels, shortest_edge=min_pixels)
+            if hasattr(img_proc, "size") and isinstance(img_proc.size, dict):
+                _pixel_to_edge = {
+                    "max_pixels": "longest_edge",
+                    "min_pixels": "shortest_edge",
+                }
+                for pixel_key, edge_key in _pixel_to_edge.items():
+                    if pixel_key in self.image_config and edge_key in img_proc.size:
+                        old = img_proc.size[edge_key]
+                        img_proc.size[edge_key] = self.image_config[pixel_key]
+                        logger.info(
+                            f"Override image_processor.size['{edge_key}']: "
+                            f"{old} -> {self.image_config[pixel_key]}"
+                        )
+
         self.mm_tokens = MultimodalSpecialTokens(
             image_token="<|vision_start|><|image_pad|><|vision_end|>",
             image_token_id=hf_config.image_token_id,

@@ -1,15 +1,15 @@
-FROM hub.docker.alibaba-inc.com/tre-ai-infra/amd:alinux3-x86-rocm_7.2.0-gcc_11.4.0-py_3.10-triton_3.5.1-torch_2.9.1-fa_2.8.3-aiter_0.1.12-sglang_0.1dev_2026_03_12_15_21_57
+FROM hub.docker.alibaba-inc.com/tre-ai-infra/amd:88b4a10_20260313_containerd_accelerated
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-WORKDIR /sgl-workspace/sglang
+WORKDIR /opt/sglang
 
 COPY . .
 
-RUN ls -rlt /sgl-workspace/sglang
+RUN ls -rlt /opt/sglang
 
 # 安装依赖包并缓存结果
-RUN /opt/venv/bin/pip3.10 install -r requirements/alibaba.txt -i https://artifacts.antgroup-inc.cn/simple/ \
+RUN /usr/local/bin/pip3.10 install -r requirements/alibaba.txt -i https://artifacts.antgroup-inc.cn/simple/ \
      --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/py-central/ \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/pytorch/ \
@@ -42,24 +42,18 @@ RUN mkdir /.aiter
 RUN chmod -R 777 /.aiter
 
 RUN chmod -R 777  /tmp/aiter_configs
-RUN chmod -R 777 /sgl-workspace
+RUN chmod -R 777 /opt
 
-# 安装 gdb 及调试工具，用于 coredump 分析
-RUN apt-get update && apt-get install -y \
-    gdb \
-    gdbserver \
-    binutils \
-    && rm -rf /var/lib/apt/lists/*
 
 
 # Patch PyTorch to also catch PermissionError when calling nvcc (happens for non-root users)
 RUN sed -i \
     's/except (FileNotFoundError, subprocess.CalledProcessError):/except (FileNotFoundError, subprocess.CalledProcessError, PermissionError):/' \
-    /opt/venv/lib/python3.10/site-packages/torch/_dynamo/debug_utils.py
-
-RUN rm -rf /tmp/aiter_configs/*
+    /usr/local/lib/python3.10/site-packages/torch/_dynamo/debug_utils.py
 
 
-RUN ls -rlt /sgl-workspace
+
+
+RUN ls -rlt /opt
 
 RUN ls -rlt /app/sglang_server

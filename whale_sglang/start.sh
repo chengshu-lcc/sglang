@@ -163,24 +163,46 @@ if [[ -z "${MAX_WATCHDOG_TIMEOUT}" ]]; then
   MAX_WATCHDOG_TIMEOUT="3600"
 fi
 
+if [[ -z "${SGLANG_SKIP_SERVER}" ]]; then
+  echo "SGLANG_SKIP_SERVER is not set, set it to 0"
+  SGLANG_SKIP_SERVER=0
+fi
+
+
 printenv > "$ENV_FILE";
+
+if [ "${SGLANG_SKIP_SERVER}" -eq 1 ]; then
+    echo "SGLANG_SKIP_SERVER is set to 1, skipping sglang server startup and entering debug mode"
+    echo "Container will keep running with 'while true; do sleep 3600; done'"
+    while true; do sleep 3600; done
+fi
+
 if [ "${CMD}" ]; then
     echo "use cmd mode"
     ${CMD} >> "$STDOUT_FILE" 2>> "$STDERR_FILE";
 else
     echo "use default mode"
     # 尝试使用指定的 Python 路径
-    if [ -x /opt/venv/bin/python3.10 ]; then
+    if [ -x /usr/local/bin/python3.10]; then
       PYTHON_EXEC=/opt/venv/bin/python3.10
     # 检查 /opt/conda//envs/py_3.9/bin/python 是否存在
     elif [ -f /opt/conda//envs/py_3.9/bin/python ]; then
         PYTHON_EXEC=/opt/conda//envs/py_3.9/bin/python
     else
         # 使用系统的 python3
-        echo "/opt/venv/bin/python3.10 not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
+        echo "/usr/local/bin/python3.10not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
         PYTHON_EXEC=python3
     fi
 
+if [ -n "$SPECIFY_TRANSFORMERS_VERSION" ]; then
+    echo "install specific transformers version: $SPECIFY_TRANSFORMERS_VERSION"
+    pip3 install -U transformers=="$SPECIFY_TRANSFORMERS_VERSION" --break-system-packages -i https://artifacts.antgroup-inc.cn/simple/ \
+     --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra \
+     --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/py-central/ \
+     --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/pytorch/ \
+     --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/rtp_diffusion \
+     --trusted-host=artlab.alibaba-inc.com
+fi
     $PYTHON_EXEC -s -m sglang_server.server.start_server \
       --port ${START_PORT} \
       --model-path ${CHECKPOINT_PATH} \

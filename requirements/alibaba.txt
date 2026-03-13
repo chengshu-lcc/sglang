@@ -2,3 +2,4 @@
 llm_plugin==0.0.4
 blake3
 decord
+transformers==5.2.0

@@ -907,8 +907,14 @@ def load_image(
     elif isinstance(image_file, bytes):
         image = Image.open(BytesIO(image_file))
     elif image_file.startswith("http://") or image_file.startswith("https://"):
+        from sglang.version import __version__ as SGLANG_VERSION
+
         timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
-        response = requests.get(image_file, stream=True, timeout=timeout)
+        bizname = os.environ.get("BIZ_NAME", SGLANG_VERSION)
+        headers = {"User-Agent": f"sglang/{bizname}"}
+        response = requests.get(
+            image_file, stream=True, timeout=timeout, headers=headers
+        )
         try:
             response.raise_for_status()
             image = Image.open(response.raw)
@@ -1025,8 +1031,12 @@ def load_image_tensor(
 
     elif image_file.startswith("http://") or image_file.startswith("https://"):
         # HTTP/HTTPS URL
+        from sglang.version import __version__ as SGLANG_VERSION
+
+        bizname = os.environ.get("BIZ_NAME", SGLANG_VERSION)
+        headers = {"User-Agent": f"sglang/{bizname}"}
         timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
-        response = requests.get(image_file, stream=True, timeout=timeout)
+        response = requests.get(image_file, stream=True, timeout=timeout, headers=headers)
         try:
             response.raise_for_status()
             # Detect format after reading to memory
@@ -1128,8 +1138,14 @@ def get_image_bytes(image_file: Union[str, bytes]):
     if isinstance(image_file, bytes):
         return image_file
     elif image_file.startswith("http://") or image_file.startswith("https://"):
+        from sglang.version import __version__ as SGLANG_VERSION
+
         timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
-        response = requests.get(image_file, timeout=timeout)
+        bizname = os.environ.get("BIZ_NAME", SGLANG_VERSION)
+        headers = {"User-Agent": f"sglang/{bizname}"}
+        response = requests.get(
+            image_file, stream=True, timeout=timeout, headers=headers
+        )
         return response.content
     elif image_file.startswith("file://"):
         image_file = unquote(urlparse(image_file).path)
