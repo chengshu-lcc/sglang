@@ -1,4 +1,4 @@
-FROM hub.docker.alibaba-inc.com/rocm/sgl-dev:v0.5.9-rocm700-mi30x-20260309
+FROM hub.docker.alibaba-inc.com/tre-ai-infra/amd:alinux3-x86-rocm_7.2.0-gcc_11.4.0-py_3.10-triton_3.5.1-torch_2.9.1-fa_2.8.3-aiter_0.1.12-sglang_0.1dev_2026_03_12_15_21_57
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
