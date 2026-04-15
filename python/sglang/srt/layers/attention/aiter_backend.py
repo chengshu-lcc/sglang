@@ -148,6 +148,7 @@ class AiterAttnBackend(AttentionBackend):
             model_runner.model_config.num_attention_heads // get_attention_tp_size()
         )
         self.head_dim = model_runner.model_config.head_dim
+        """
         # For hybrid linear models (e.g. Qwen3.5), layer 0 may not have a KV buffer
         if (
             model_runner.hybrid_gdn_config is not None
@@ -156,6 +157,7 @@ class AiterAttnBackend(AttentionBackend):
             self.v_head_dim = model_runner.token_to_kv_pool.get_v_head_dim()
         # else:
         # self.v_head_dim = model_runner.token_to_kv_pool.get_value_buffer(0).shape[-1]
+        """
         self.num_kv_head = model_runner.model_config.get_num_kv_heads(
             get_attention_tp_size()
         )
@@ -971,6 +973,8 @@ class AiterAttnBackend(AttentionBackend):
             qo_indptr = None
             kv_last_page_len = None
             max_q_len = None
+            block_tables = None
+            context_lens = None
 
             if spec_info is None:
                 kv_indptr = self.kv_indptr
