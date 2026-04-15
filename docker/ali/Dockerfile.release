@@ -42,6 +42,16 @@ RUN mkdir /.aiter
 RUN chmod -R 777 /.aiter
 
 RUN chmod -R 777  /tmp/aiter_configs
+
+# 从 OSS 下载预编译的 aiter JIT so 文件
+RUN mkdir -p /opt/aiter/aiter/jit/ && \
+    curl -fsSL -o /opt/aiter/aiter/jit/mha_batch_prefill_bf16_nlogits_nbias_mask_nlse_ndropout_nqscale.so \
+        https://434934.oss-cn-hangzhou-zmf.aliyuncs.com/wenhua/mha_batch_prefill_bf16_nlogits_nbias_mask_nlse_ndropout_nqscale.so && \
+    curl -fsSL -o /opt/aiter/aiter/jit/mha_varlen_fwd_bf16_nlogits_nbias_nmask_nlse_ndropout_nskip_nqscale.so \
+        https://434934.oss-cn-hangzhou-zmf.aliyuncs.com/wenhua/mha_varlen_fwd_bf16_nlogits_nbias_nmask_nlse_ndropout_nskip_nqscale.so && \
+    curl -fsSL -o /opt/aiter/aiter/jit/module_norm.so \
+        https://434934.oss-cn-hangzhou-zmf.aliyuncs.com/wenhua/module_norm.so
+
 RUN chmod -R 777 /opt
 
 
