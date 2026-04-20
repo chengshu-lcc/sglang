@@ -1,4 +1,4 @@
-FROM hub.docker.alibaba-inc.com/tre-ai-infra/amd:88b4a10_20260313_containerd_accelerated
+FROM hub.docker.alibaba-inc.com/tre-ai-infra/amd:alinux3_sglang_0408_containerd_accelerated
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
