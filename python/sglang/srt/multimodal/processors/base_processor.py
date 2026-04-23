@@ -19,13 +19,13 @@ from sglang.srt.managers.schedule_batch import (
 )
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
+    batch_decode_jpeg_gpu,
     envs,
     is_cpu,
     is_npu,
     is_xpu,
     load_audio,
     load_image_tensor,
-    batch_decode_jpeg_gpu,
     load_video,
     logger,
 )
@@ -780,9 +780,9 @@ class BaseMultimodalProcessor(ABC):
             elif modality == Modality.AUDIO:
                 audios[idx] = result
 
-        # Batch decode all JPEG images on GPU
+        # Batch decode all JPEG images (GPU with automatic CPU fallback)
         if jpeg_bytes_list:
-            decoded_images = batch_decode_jpeg_gpu(jpeg_bytes_list, device="cuda:1")
+            decoded_images = batch_decode_jpeg_gpu(jpeg_bytes_list)
             for img_idx, decoded_img in zip(jpeg_indices, decoded_images):
                 images[img_idx] = decoded_img.to("cuda")
 
@@ -879,11 +879,9 @@ class BaseMultimodalProcessor(ABC):
                 # Non-image data or precomputed data
                 final_results.append(result)
 
-        # Batch decode all JPEG images
+        # Batch decode all JPEG images (GPU with automatic CPU fallback)
         if jpeg_bytes_list:
-            decoded_images = batch_decode_jpeg_gpu(jpeg_bytes_list, device="cuda:1")
-
-            # Put decoded images back to their original positions
+            decoded_images = batch_decode_jpeg_gpu(jpeg_bytes_list)
             for img_idx, decoded_img in zip(jpeg_indices, decoded_images):
                 final_results[img_idx] = decoded_img.to("cuda")
 

@@ -936,6 +936,7 @@ def load_image(
 
     return image, image_size
 
+
 def _is_jpeg(data):
     """
     Detect if data is in JPEG format
@@ -958,28 +959,50 @@ def _is_jpeg(data):
     return False
 
 
-def batch_decode_jpeg_gpu(img_tensor_bytes_list: list, device="cuda:1"):
+def _decode_jpeg_pil(tensor: torch.Tensor) -> torch.Tensor:
+    """Decode a JPEG tensor via PIL (slowest but most compatible path)."""
+    img = Image.open(BytesIO(bytes(tensor)))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return F.pil_to_tensor(img)
+
+
+def batch_decode_jpeg_gpu(img_tensor_bytes_list: list, device="cuda"):
     """
-    Batch decode multiple JPEG images
+    Batch decode multiple JPEG images on GPU, with automatic CPU fallback.
+
+    Decode priority: nvJPEG (GPU) → torchvision decode_image (CPU) → PIL (CPU).
 
     Args:
         img_tensor_bytes_list: List of encoded JPEG byte data (each element is a torch.Tensor)
-        device: Target GPU device
+        device: Target GPU device for nvJPEG decoding
 
     Returns:
-        List of decoded image tensors
+        List of decoded image tensors (CHW, uint8, RGB).
+        Tensors are on GPU if nvJPEG succeeded, otherwise on CPU.
     """
     if not img_tensor_bytes_list:
         return []
 
-    from torchvision.io import decode_jpeg
+    # 1) Try GPU batch decode (nvJPEG) — skipped on AMD/HIP
+    if not is_hip():
+        try:
+            from torchvision.io import decode_jpeg
 
-    # Batch decode
-    decoded_images = decode_jpeg(
-        img_tensor_bytes_list, mode=ImageReadMode.RGB, device=device
-    )
+            return decode_jpeg(
+                img_tensor_bytes_list, mode=ImageReadMode.RGB, device=device
+            )
+        except RuntimeError as e:
+            logger.warning("GPU JPEG decoding failed, falling back to CPU: %s", e)
 
-    return decoded_images
+    # 2) Try torchvision CPU decode, fall back to PIL per-image if libjpeg missing
+    results = []
+    for t in img_tensor_bytes_list:
+        try:
+            results.append(decode_image(t, mode=ImageReadMode.RGB))
+        except RuntimeError:
+            results.append(_decode_jpeg_pil(t))
+    return results
 
 
 def load_image_tensor(
@@ -1036,7 +1059,9 @@ def load_image_tensor(
         bizname = os.environ.get("BIZ_NAME", SGLANG_VERSION)
         headers = {"User-Agent": f"sglang/{bizname}"}
         timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
-        response = requests.get(image_file, stream=True, timeout=timeout, headers=headers)
+        response = requests.get(
+            image_file, stream=True, timeout=timeout, headers=headers
+        )
         try:
             response.raise_for_status()
             # Detect format after reading to memory
@@ -1131,7 +1156,6 @@ def load_image_tensor(
             return img_tensor, None
     else:
         raise ValueError(f"Invalid image: {image_file}")
-
 
 
 def get_image_bytes(image_file: Union[str, bytes]):
