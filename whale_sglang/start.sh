@@ -183,25 +183,44 @@ if [ "${CMD}" ]; then
 else
     echo "use default mode"
     # 尝试使用指定的 Python 路径
-    if [ -x /usr/local/bin/python3.10]; then
-      PYTHON_EXEC=/opt/venv/bin/python3.10
+    if [ -x /usr/local/bin/python3.10 ]; then
+      PYTHON_EXEC=/usr/local/bin/python3.10
     # 检查 /opt/conda//envs/py_3.9/bin/python 是否存在
     elif [ -f /opt/conda//envs/py_3.9/bin/python ]; then
         PYTHON_EXEC=/opt/conda//envs/py_3.9/bin/python
     else
         # 使用系统的 python3
-        echo "/usr/local/bin/python3.10not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
+        echo "/usr/local/bin/python3.10 not found and /opt/conda//envs/py_3.9/bin/python not found, using system python3"
         PYTHON_EXEC=python3
     fi
 
 if [ -n "$SPECIFY_TRANSFORMERS_VERSION" ]; then
-    echo "install specific transformers version: $SPECIFY_TRANSFORMERS_VERSION"
-    pip3 install -U transformers=="$SPECIFY_TRANSFORMERS_VERSION" --break-system-packages -i https://artifacts.antgroup-inc.cn/simple/ \
+    echo "install specific transformers version: $SPECIFY_TRANSFORMERS_VERSION (via $PYTHON_EXEC -m pip)"
+    # 系统 site-packages 里已存在 root 拥有的 transformers，admin 用户无法替换；
+    # 因此装到一个独立的、我们 100% 有写权限的目录，再用 PYTHONPATH 注入到 sys.path 最前面。
+    # `python -s` 只忽略 user site，不忽略 PYTHONPATH，因此一定生效，也不会污染系统目录。
+    EXTRA_PYLIB_DIR="${HIPPO_PROC_WORKDIR}/pylibs/transformers-${SPECIFY_TRANSFORMERS_VERSION}"
+    rm -rf "$EXTRA_PYLIB_DIR"
+    mkdir -p "$EXTRA_PYLIB_DIR"
+    echo "target dir: $EXTRA_PYLIB_DIR"
+    # transformers 4.57.1 强制要求 huggingface-hub>=0.34.0,<1.0，但系统里装的是 1.x（与 transformers 5.x 配套）。
+    # 用 --no-deps 仅把 transformers + 与之兼容的 hub 装到同一隔离目录，PYTHONPATH 前置后两者一起被 import，
+    # 不污染系统装好的其它依赖（torch/vllm/cache_dit/peft 等）。
+    $PYTHON_EXEC -m pip install --no-deps \
+     --target="$EXTRA_PYLIB_DIR" \
+     transformers=="$SPECIFY_TRANSFORMERS_VERSION" \
+     "huggingface-hub>=0.34.0,<1.0" \
+     --break-system-packages -i https://artifacts.antgroup-inc.cn/simple/ \
      --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/aios-ai-infra \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/py-central/ \
      --extra-index-url=https://artlab.alibaba-inc.com/1/PYPI/pytorch/ \
      --extra-index-url=http://artlab.alibaba-inc.com/1/pypi/rtp_diffusion \
      --trusted-host=artlab.alibaba-inc.com
+    # 注入到 sys.path 最前面，覆盖系统目录里旧版本。
+    export PYTHONPATH="${EXTRA_PYLIB_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+    echo "PYTHONPATH=$PYTHONPATH"
+    # 校验运行时实际加载的版本，提前暴露安装失败 / 路径不一致问题。
+    $PYTHON_EXEC -s -c "import transformers; print('[start.sh] runtime transformers:', transformers.__version__, transformers.__file__)"
 fi
     $PYTHON_EXEC -s -m sglang_server.server.start_server \
       --port ${START_PORT} \
