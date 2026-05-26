@@ -43,6 +43,7 @@ setattr(threading, "_register_atexit", lambda *args, **kwargs: None)
 
 import numpy as np
 import orjson
+import psutil
 import requests
 import uvicorn
 import uvloop
@@ -50,6 +51,16 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, ORJSONResponse, Response, StreamingResponse
+from llm_plugin.utils.concurrency_controller import (
+    ConcurrencyController,
+    ConcurrencyException,
+)
+from wrapper.request_wrapper import (
+    ChatCompletionRequestWrapper,
+    CompletionRequestWrapper,
+    EmbeddingCompletionRequestWrapper,
+)
+from wrapper.response_wrapper import CompletionResponseWrapper
 
 from sglang.srt.disaggregation.utils import FAKE_BOOTSTRAP_HOST, DisaggregationMode
 from sglang.srt.entrypoints.anthropic.protocol import (
@@ -158,27 +169,85 @@ from sglang.srt.utils import (
 from sglang.srt.utils.auth import AuthLevel, app_has_admin_force_endpoints, auth_level
 from sglang.utils import get_exception_traceback
 from sglang.version import __version__
-from llm_plugin.utils.concurrency_controller import ConcurrencyController, ConcurrencyException
-from wrapper.request_wrapper import ChatCompletionRequestWrapper, CompletionRequestWrapper, EmbeddingCompletionRequestWrapper
-from wrapper.response_wrapper import CompletionResponseWrapper
-
 
 # Global constants
 HEALTH_CHECK_TIMEOUT = int(os.getenv("SGLANG_HEALTH_CHECK_TIMEOUT", 20))
 WAIT_WEIGHTS_READY_TIMEOUT = int(os.getenv("SGLANG_WAIT_WEIGHTS_READY_TIMEOUT", 120))
+# /health backend-liveness check: how long to cache the subprocess-alive result
+# so that tight liveness probes don't hammer /proc on every hit.
+HEALTH_BACKEND_CHECK_CACHE_TTL = float(
+    os.getenv("SGLANG_HEALTH_BACKEND_CHECK_CACHE_TTL", "2.0")
+)
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
+# Tracked backend subprocess PIDs (scheduler / detokenizer / dp-controller).
+# Snapshotted once after `_launch_subprocesses` returns. Empty in
+# multi-tokenizer worker mode — the check then no-ops.
+_backend_proc_pids: List[int] = []
+_backend_health_cache: Dict[str, Any] = {"ts": 0.0, "ok": True, "dead": []}
+
+
+def _snapshot_backend_proc_pids() -> None:
+    """Record direct child PIDs of this process for /health liveness checks.
+
+    Called once, right after the engine subprocesses are spawned. At that
+    point the scheduler / detokenizer (and in multi-tokenizer mode, the
+    tokenizer workers) are direct children of the API server process.
+    """
+    global _backend_proc_pids
+    try:
+        children = psutil.Process().children(recursive=False)
+        _backend_proc_pids = [c.pid for c in children]
+        logger.info(
+            f"Health watchdog tracking backend subprocess pids: {_backend_proc_pids}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to snapshot backend subprocess pids for /health: {e}")
+        _backend_proc_pids = []
+
+
+def _check_backend_alive() -> "tuple[bool, List[int]]":
+    """Return (all_alive, dead_pids).
+
+    Cached for HEALTH_BACKEND_CHECK_CACHE_TTL seconds so tight K8s liveness
+    probes don't walk /proc on every hit.
+    """
+    now = time.time()
+    if now - _backend_health_cache["ts"] < HEALTH_BACKEND_CHECK_CACHE_TTL:
+        return _backend_health_cache["ok"], _backend_health_cache["dead"]
+
+    dead: List[int] = []
+    for pid in _backend_proc_pids:
+        try:
+            proc = psutil.Process(pid)
+            # Zombie == subprocess crashed/exited but not yet reaped by parent.
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                dead.append(pid)
+        except psutil.NoSuchProcess:
+            dead.append(pid)
+        except Exception:
+            # Be lenient on transient psutil errors — don't flap /health.
+            pass
+
+    ok = not dead
+    _backend_health_cache["ts"] = now
+    _backend_health_cache["ok"] = ok
+    _backend_health_cache["dead"] = dead
+    return ok, dead
+
+
 def create_concurrency_response(message: str) -> JSONResponse:
-    response = ErrorResponse(message=message,
-                             type="TOO_MANY_REQUESTS",
-                             code=HTTPStatus.TOO_MANY_REQUESTS)
-    return JSONResponse(content=response.model_dump(),
-                        status_code=response.code)
+    response = ErrorResponse(
+        message=message, type="TOO_MANY_REQUESTS", code=HTTPStatus.TOO_MANY_REQUESTS
+    )
+    return JSONResponse(content=response.model_dump(), status_code=response.code)
+
 
 max_concurrency = int(os.getenv("CONCURRENCY_LIMIT", "128"))
 controller = ConcurrencyController(max_concurrency=max_concurrency, block=False)
-logger = logging.getLogger('sglang.entrypoints.openai.api_server')
+logger = logging.getLogger("sglang.entrypoints.openai.api_server")
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
 
 # Store global states
 @dataclasses.dataclass
@@ -476,14 +545,38 @@ async def validate_json_request(raw_request: Request):
 
 @app.get("/health")
 async def health() -> Response:
-    """Check the health of the http server."""
+    """Check the health of the http server AND the engine subprocesses.
 
-    if _global_state.tokenizer_manager.gracefully_exit:
+    Returns 503 when:
+      - shutdown is in progress (`gracefully_exit`)
+      - server is still warming up (`server_status == Starting`)
+      - server has been marked unhealthy by /health_generate or warmup
+      - any tracked engine subprocess (scheduler / detokenizer / dp ctrl /
+        tokenizer worker) has exited or become a zombie
+    """
+
+    tm = _global_state.tokenizer_manager
+
+    if tm.gracefully_exit:
         logger.info("Health check request received during shutdown. Returning 503.")
         return Response(status_code=503)
-    if _global_state.tokenizer_manager.server_status == ServerStatus.Starting:
+    if tm.server_status == ServerStatus.Starting:
         return Response(status_code=503)
+    if tm.server_status == ServerStatus.UnHealthy:
+        return Response(status_code=503)
+
+    alive, dead_pids = _check_backend_alive()
+    if not alive:
+        if tm.server_status != ServerStatus.UnHealthy:
+            logger.error(
+                f"Health check failed: backend subprocess(es) died: {dead_pids}. "
+                f"Marking server UnHealthy."
+            )
+            tm.server_status = ServerStatus.UnHealthy
+        return Response(status_code=503)
+
     return Response(status_code=200)
+
 
 @app.get("/health_generate")
 async def health_generate(request: Request) -> Response:
@@ -1425,8 +1518,10 @@ if True:
         try:
             with controller:
                 request.update_request()
-                return await raw_request.app.state.openai_serving_embedding.handle_request(
-                    request, raw_request
+                return (
+                    await raw_request.app.state.openai_serving_embedding.handle_request(
+                        request, raw_request
+                    )
                 )
         except ConcurrencyException as e:
             try:
@@ -1436,7 +1531,6 @@ if True:
             except ImportError:
                 pass
             return create_concurrency_response(str(e))
-
 
 
 @app.post(
@@ -1968,6 +2062,10 @@ def launch_server(
         )
     )
 
+    # Snapshot direct children (scheduler/detokenizer/dp-controller) so /health
+    # can detect when any of them dies (segfault / OOM-kill / abort).
+    _snapshot_backend_proc_pids()
+
     # Parse info got from the schedulers
     remote_instance_transfer_engine_info = (
         parse_remote_instance_transfer_engine_info_from_scheduler_infos(scheduler_infos)
@@ -2068,11 +2166,12 @@ def launch_server(
             _global_state.tokenizer_manager.socket_mapping.clear_all_sockets()
 
 
-
 def start_api_server(extra_args=[]):
-    from sglang.srt.server_args import prepare_server_args
-    from sglang_server.utils.fuser import fetch_remote_file_to_local
     from llm_plugin.metrics import kmonitor
+    from sglang_server.utils.fuser import fetch_remote_file_to_local
+
+    from sglang.srt.server_args import prepare_server_args
+
     kmonitor.init()
     logger.info(f"start_api_server extra_args before preprocessing: {extra_args}")
 
@@ -2083,7 +2182,11 @@ def start_api_server(extra_args=[]):
         arg = extra_args[i]
 
         # 检查是否是需要处理的路径参数
-        if arg in ['--model-path', '--tokenizer-path', '--speculative-draft-model-path']:
+        if arg in [
+            "--model-path",
+            "--tokenizer-path",
+            "--speculative-draft-model-path",
+        ]:
             processed_args.append(arg)
             if i + 1 < len(extra_args):
                 original_path = extra_args[i + 1]
@@ -2116,7 +2219,5 @@ def start_api_server(extra_args=[]):
         kill_process_tree(os.getpid(), include_parent=False)
 
 
-
 if __name__ == "__main__":
     start_api_server()
-
